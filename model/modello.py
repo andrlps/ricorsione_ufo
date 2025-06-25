@@ -1,61 +1,170 @@
 import copy
+from calendar import month
+from datetime import datetime
 
 from database.DAO import DAO
 import networkx as nx
 
-from model.sighting import Sighting
 
 
 class Model:
     def __init__(self):
-        self._grafo = nx.DiGraph()
-        self._nodes = []
-        self._cammino_ottimo = []
-        self._score_ottimo = 0
+        self._punteggio = 0
+        self._percorso = None
+        self._nodes = list()
+        self._idNodes = dict()
+        self._edges = list()
+        self._edgesList = list()
+        self._graph = None
 
-    def get_years(self):
-        return DAO.get_years()
+    def getYears(self):
+        return DAO.getYears()
 
-    def get_shapes_year(self, year: int):
-        return DAO.get_shapes_year(year)
+    def getShapes(self, year):
+        return DAO.getShapes(year)
 
-    def create_graph(self, year: int, shape: str):
-        self._grafo.clear()
-        self._nodes = DAO.get_nodes(year, shape)
-        self._grafo.add_nodes_from(self._nodes)
+    def buildGraph(self, year, shape):
+        self._graph = nx.DiGraph()
+        self._nodes = DAO.getNodes(year, shape)
+        for node in self._nodes:
+            self._idNodes[node.id] = node
+        self._edges = DAO.getEdges(year, shape, self._idNodes)
+        self._graph.add_nodes_from(self._nodes)
+        for edge in self._edges:
+            self._graph.add_edge(edge.n1, edge.n2, weight=edge.weight)
+            self._edgesList.append((edge.n1, edge.n2, edge.weight))
 
-        # calcolo degli edges in modo programmatico
-        for i in range(0, len(self._nodes) - 1):
-            for j in range(i + 1, len(self._nodes)):
-                if self._nodes[i].state == self._nodes[j].state and self._nodes[i].longitude < self._nodes[j].longitude:
-                    weight = self._nodes[j].longitude - self._nodes[i].longitude
-                    self._grafo.add_edge(self._nodes[i], self._nodes[j], weight= weight)
-                elif self._nodes[i].state == self._nodes[j].state and self._nodes[i].longitude > self._nodes[j].longitude:
-                    weight = self._nodes[i].longitude - self._nodes[j].longitude
-                    self._grafo.add_edge(self._nodes[j], self._nodes[i], weight= weight)
+    def getInfoGraph(self):
+        return self._graph.number_of_nodes(), self._graph.number_of_edges()
 
-    def get_top_edges(self):
-        sorted_edges = sorted(self._grafo.edges(data=True), key=lambda edge: edge[2].get('weight'), reverse=True)
-        return sorted_edges[0:5]
+    def getWorse(self):
+        sort_list(self._edgesList)
+        return self._edgesList[:5]
 
+    def existsGraph(self):
+        if self._graph is None:
+            return False
+        return True
 
-    def get_nodes(self):
-        return self._grafo.nodes()
+    def getPath(self):
+        for nodo in self._nodes:
+            self.ricorsione([nodo])
+        return self._percorso, self._punteggio
 
-    # def get_edges(self):
-    #     return list(self._grafo.edges(data=True))
+    def ricorsione(self, parziale):
+        if self.condizioneFinale(parziale):
+            punteggio = self.calcolaPunteggio(parziale)
+            if punteggio > self._punteggio:
+                self._punteggio = punteggio
+                self._percorso = copy.deepcopy(parziale)
+        else:
+            for nodo in self._graph.neighbors(parziale[-1]):
+                if self.condizione(parziale, nodo):
+                    parziale.append(nodo)
+                    self.ricorsione(parziale)
+                    parziale.pop()
 
-    def get_num_of_nodes(self):
-        return self._grafo.number_of_nodes()
+    def condizione(self, parziale, nodo):
+        if nodo in parziale:
+            return False
+        if len(parziale) == 1:
+            return True
+        peso1 = parziale[-1].duration
+        peso2 = nodo.duration
+        if peso1 > peso2:
+            return False
+        mese = nodo.datetime.month
+        m = 0
+        for n in parziale:
+            if n.datetime.month == mese:
+                m += 1
+                if m == 3:
+                    return False
+        return True
 
-    def get_num_of_edges(self):
-        return self._grafo.number_of_edges()
+    def condizioneFinale(self, parziale):
+        for n in self._graph.neighbors(parziale[-1]):
+            if self.condizione(parziale, n):
+                return False
+        return True
 
+    def calcolaPunteggio(self, parziale):
+        p = 100
+        for i in range(1, len(parziale)):
+            if parziale[i].datetime.month == parziale[i-1].datetime.month:
+                p += 200
+            else:
+                p += 100
+        return p
+
+    #--------------------------------------
     def cammino_ottimo(self):
-        self._cammino_ottimo = []
-        self._score_ottimo = 0
+        self._percorso = []
+        self._punteggio = 0
 
-        #TODO
+        for node in self._graph.nodes():
+            parziale = [node]
+            rimanenti = self.calcola_rimanenti(parziale)
+            self._ricorsione(parziale, rimanenti)
 
-        return self._cammino_ottimo, self._score_ottimo
+        return self._percorso, self._punteggio
 
+    def _ricorsione(self, parziale, nodi_rimanenti):
+        # caseo terminale:
+        if len(nodi_rimanenti) == 0:
+            punteggio = self.calcola_punteggio(parziale)
+            if punteggio > self._punteggio:
+                self._punteggio = punteggio
+                self._percorso = copy.deepcopy(parziale)
+        # caso ricorsivo
+        else:
+            # per ogni nodo rimanente
+            for nodo in nodi_rimanenti:
+                # aggiungere il nodo
+                parziale.append(nodo)
+                # calcolare i nuovi rimanenti di questo nodo
+                nuovi_rimanenti = self.calcola_rimanenti(parziale)
+                # andare avanti nella ricorsione
+                self._ricorsione(parziale, nuovi_rimanenti)
+                # backtracking
+                parziale.pop()
+
+    def calcola_punteggio(self, parziale):
+        punteggio = 0
+        # termine fisso
+        punteggio += 100 * len(parziale)
+        # termine variabile
+        for i in range(1, len(parziale)):
+            nodo = parziale[i]
+            nodo_precedente = parziale[i - 1]
+            if nodo.datetime.month == nodo_precedente.datetime.month:
+                punteggio += 200
+        # return
+        return punteggio
+
+    def calcola_rimanenti(self, parziale):
+        nuovi_rimanenti = []
+        # prendiamo i nodi successivi
+        for i in self._graph.successors(parziale[-1]):
+            # di questi nodi, dobbiamo verificare il vincolo sul mese
+            if (self.is_vincolo_ok(parziale, i) and
+                    self.is_vincolo_durata_ok(parziale, i)):
+                nuovi_rimanenti.append(i)
+        return nuovi_rimanenti
+
+    def is_vincolo_durata_ok(self, parziale, nodo):
+        return nodo.duration > parziale[-1].duration
+
+    def is_vincolo_ok(self, parziale, nodo):
+        mese = nodo.datetime.month
+        counter = 0
+        for i in parziale:
+            if i.datetime.month == mese:
+                counter += 1
+        if counter >= 3:
+            return False
+        else:
+            return True
+
+def sort_list(lista):
+    lista.sort(key=lambda x: x[2], reverse=True)

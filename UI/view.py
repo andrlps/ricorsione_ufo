@@ -1,5 +1,5 @@
+import flet
 import flet as ft
-
 
 class View(ft.UserControl):
     def __init__(self, page: ft.Page):
@@ -42,8 +42,6 @@ class View(ft.UserControl):
         self.btn_path = ft.ElevatedButton(text="Calcola percorso",
                                           tooltip="Risolvi il punto 2",
                                           on_click=self._controller.handle_path)
-
-        self.btn_path.disabled = True
 
         row1 = ft.Row([self.ddyear, self.ddshape, self.btn_graph, self.btn_path],
                       alignment=ft.MainAxisAlignment.SPACE_EVENLY)
@@ -103,3 +101,6 @@ class View(ft.UserControl):
 
     def update_page(self):
         self._page.update()
+
+if __name__ == "__main__":
+    print(flet.__version__)
